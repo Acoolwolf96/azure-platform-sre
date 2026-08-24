@@ -1,0 +1,29 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Terraform variable files may contain secrets
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Floci runtime data
+data/
+
+# Local TLS certificate
+floci-az.crt
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

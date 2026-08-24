@@ -1,0 +1,16 @@
+services:
+  floci-az:
+    image: floci/floci-az:0.11.0
+    container_name: floci-az
+    restart: unless-stopped
+
+    ports:
+      - "4577:4577"
+
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      FLOCI_AZ_STORAGE_MODE: hybrid
+      FLOCI_AZ_TLS_ENABLED: "true"
