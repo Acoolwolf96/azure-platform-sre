@@ -13,3 +13,11 @@ output "virtual_network_name" {
 output "aks_subnet_id" {
   value = azurerm_subnet.aks.id
 }
+
+output "container_registry_name" {
+  value = azurerm_container_registry.platform.name
+}
+
+output "container_registry_login_server" {
+  value = azurerm_container_registry.platform.login_server
+}

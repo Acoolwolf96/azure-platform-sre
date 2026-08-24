@@ -1,6 +1,6 @@
 services:
   floci-az:
-    image: floci/floci-az:0.11.0
+    image: floci/floci-az:latest
     container_name: floci-az
     restart: unless-stopped
 

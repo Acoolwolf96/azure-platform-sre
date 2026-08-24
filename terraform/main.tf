@@ -22,3 +22,23 @@ resource "azurerm_subnet" "aks" {
   virtual_network_name = azurerm_virtual_network.platform.name
   address_prefixes     = ["10.50.1.0/24"]
 }
+
+resource "azurerm_container_registry" "platform" {
+  name                = "acrplatformsre"
+  resource_group_name = azurerm_resource_group.platform.name
+  location            = azurerm_resource_group.platform.location
+  sku                 = "Basic"
+  admin_enabled       = true
+
+  tags = {
+    project     = "azure-platform-sre"
+    environment = "local"
+    managed_by  = "terraform"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      role_assignment_mode
+    ]
+  }
+}
