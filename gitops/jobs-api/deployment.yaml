@@ -14,8 +14,13 @@ spec:
     spec:
       containers:
         - name: jobs-api
-          image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:v1
+          image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:v2
           imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVICEBUS_URL
+              value: "amqp://servicebus:5672"
+            - name: SERVICEBUS_QUEUE
+              value: "jobs"
           ports:
             - containerPort: 8080
           readinessProbe:
