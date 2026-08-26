@@ -14,13 +14,22 @@ spec:
     spec:
       containers:
         - name: worker
-          image: floci-az-acr-registry:5000/acrplatformsre/worker:v1
+          image: floci-az-acr-registry:5000/acrplatformsre/worker:v2
           imagePullPolicy: IfNotPresent
           env:
             - name: SERVICEBUS_URL
               value: "amqp://servicebus.jobs.svc.cluster.local:5672"
             - name: SERVICEBUS_QUEUE
               value: "jobs"
+            - name: PGHOST
+              value: "postgres.jobs.svc.cluster.local"
+            - name: PGPORT
+              value: "5432"
+            - name: PGSSLMODE
+              value: "disable"
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
           resources:
             requests:
               cpu: 10m
