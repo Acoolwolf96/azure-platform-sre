@@ -14,3 +14,5 @@ services:
     environment:
       FLOCI_AZ_STORAGE_MODE: hybrid
       FLOCI_AZ_TLS_ENABLED: "true"
+      FLOCI_AZ_SERVICES_SERVICE_BUS_ENABLED: "true"
+      FLOCI_AZ_SERVICES_SERVICE_BUS_MOCKED: "false"

@@ -27,3 +27,6 @@ floci-az.crt
 .idea/
 *.swp
 .DS_Store
+terraform/*.tfstate.*
+terraform/terraform.tfstate.pre-*
+.generated/
