@@ -3,6 +3,8 @@ kind: EndpointSlice
 metadata:
   name: servicebus
   namespace: jobs
+  annotations:
+    argocd.argoproj.io/tracking-id: jobs-api:discovery.k8s.io/EndpointSlice:jobs/servicebus
   labels:
     kubernetes.io/service-name: servicebus
 addressType: IPv4
