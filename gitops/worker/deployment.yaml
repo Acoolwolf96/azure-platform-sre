@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: floci-az-acr-registry:5000/acrplatformsre/worker:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVICEBUS_URL
+              value: "amqp://servicebus.jobs.svc.cluster.local:5672"
+            - name: SERVICEBUS_QUEUE
+              value: "jobs"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
