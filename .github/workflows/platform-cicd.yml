@@ -1,0 +1,103 @@
+name: Platform CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "applications/jobs-api/**"
+      - "applications/worker/**"
+      - ".github/workflows/platform-cicd.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: platform-cicd-main
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - platform-ci
+
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify runner
+        run: |
+          docker version
+          git --version
+
+      - name: Test jobs-api
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/applications/jobs-api:/src" \
+            -w /src \
+            golang:1.25-alpine \
+            go test ./...
+
+      - name: Test worker
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/applications/worker:/src" \
+            -w /src \
+            golang:1.25-alpine \
+            go test ./...
+
+      - name: Build images
+        run: |
+          docker build \
+            -t localhost:5000/acrplatformsre/jobs-api:${GITHUB_SHA} \
+            applications/jobs-api
+
+          docker build \
+            -t localhost:5000/acrplatformsre/worker:${GITHUB_SHA} \
+            applications/worker
+
+      - name: Push images to ACR
+        run: |
+          docker push \
+            localhost:5000/acrplatformsre/jobs-api:${GITHUB_SHA}
+
+          docker push \
+            localhost:5000/acrplatformsre/worker:${GITHUB_SHA}
+
+      - name: Update GitOps manifests
+        run: |
+          sed -i -E \
+            "s#image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:.*#image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:${GITHUB_SHA}#" \
+            gitops/jobs-api/deployment.yaml
+
+          sed -i -E \
+            "s#image: floci-az-acr-registry:5000/acrplatformsre/worker:.*#image: floci-az-acr-registry:5000/acrplatformsre/worker:${GITHUB_SHA}#" \
+            gitops/worker/deployment.yaml
+
+      - name: Commit GitOps update
+        run: |
+          git config user.name "platform-ci"
+          git config user.email "platform-ci@users.noreply.github.com"
+
+          git add \
+            gitops/jobs-api/deployment.yaml \
+            gitops/worker/deployment.yaml
+
+          if git diff --cached --quiet; then
+            echo "No GitOps changes required."
+            exit 0
+          fi
+
+          git commit \
+            -m "Deploy ${GITHUB_SHA::7} [skip ci]"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
