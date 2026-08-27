@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: floci-az-acr-registry:5000/acrplatformsre/worker:v3
+          image: floci-az-acr-registry:5000/acrplatformsre/worker:97e5e9162e35c7d2640715d0b0334755c8b6150b
           imagePullPolicy: IfNotPresent
           env:
             - name: SERVICEBUS_URL
