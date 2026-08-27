@@ -206,6 +206,48 @@ endpoints:
 SBEOF
 
 
+echo "Ensuring Blob Storage results container exists..."
+
+BLOB_STATUS="$(
+  curl -sS \
+    -o /dev/null \
+    -w '%{http_code}' \
+    -X PUT \
+    "http://localhost:4577/devstoreaccount1/job-results?restype=container" \
+    -H "x-ms-version: 2023-11-03" \
+    -H "x-ms-date: $(date -u -R)" \
+    -H "Authorization: SharedKey devstoreaccount1:development"
+)"
+
+if [ "${BLOB_STATUS}" = "201" ] || [ "${BLOB_STATUS}" = "409" ]; then
+  echo "Blob container job-results is available."
+else
+  echo "Blob container creation failed with HTTP ${BLOB_STATUS}." >&2
+  exit 1
+fi
+
+
+echo "Creating Blob Storage runtime endpoint..."
+
+cat <<BLOBEOF | kubectl apply -f -
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: blob-storage
+  namespace: jobs
+  labels:
+    kubernetes.io/service-name: blob-storage
+addressType: IPv4
+ports:
+  - name: http
+    protocol: TCP
+    port: 4577
+endpoints:
+  - addresses:
+      - "${DOCKER_GW}"
+BLOBEOF
+
+
 echo "Creating PostgreSQL runtime endpoint..."
 
 cat <<PGEOF | kubectl apply -f -
