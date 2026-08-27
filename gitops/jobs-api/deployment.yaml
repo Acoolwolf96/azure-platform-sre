@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: jobs-api
-          image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:97e5e9162e35c7d2640715d0b0334755c8b6150b
+          image: floci-az-acr-registry:5000/acrplatformsre/jobs-api:e20a47b6d9386fde269aae250999d72da00ea842
           imagePullPolicy: IfNotPresent
           env:
             - name: SERVICEBUS_URL
