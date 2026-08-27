@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+data:
+  platform-alerts.yaml: |
+    groups:
+      - name: platform-sre
+        rules:
+          - alert: PlatformTargetDown
+            expr: up{job=~"jobs-api|worker"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Platform metrics target is down"
+              description: "{{ $labels.job }} has been unreachable by Prometheus for more than 1 minute."
+
+          - alert: WorkerNotReady
+            expr: worker_ready == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Worker is not ready"
+              description: "The job worker has reported not-ready for more than 1 minute."
+
+          - alert: JobFailuresDetected
+            expr: sum(increase(worker_jobs_failed_total[5m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "Job processing failures detected"
+              description: "One or more jobs failed during the last 5 minutes."
+
+          - alert: JobsAPIErrorDetected
+            expr: sum(increase(jobs_api_errors_total[5m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "jobs-api errors detected"
+              description: "The jobs API recorded one or more internal operation errors during the last 5 minutes."
+
+          - alert: HighAPILatency
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (
+                  rate(jobs_api_http_request_duration_seconds_bucket[5m])
+                )
+              ) > 0.5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High API latency"
+              description: "jobs-api p95 response latency has exceeded 500ms for 5 minutes."
