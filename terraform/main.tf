@@ -163,6 +163,7 @@ resource "terraform_data" "cluster_bootstrap" {
   triggers_replace = [
     terraform_data.aks_platform.id,
     terraform_data.postgres_platform.id,
+    terraform_data.keyvault_platform.id,
     filesha256("${path.module}/../scripts/bootstrap-cluster.sh"),
     sha256(join("", [
       for f in fileset("${path.module}/../applications/jobs-api/migrations", "*.sql") :
@@ -180,6 +181,7 @@ resource "terraform_data" "cluster_bootstrap" {
 
   depends_on = [
     terraform_data.aks_platform,
-    terraform_data.postgres_platform
+    terraform_data.postgres_platform,
+    terraform_data.keyvault_platform
   ]
 }

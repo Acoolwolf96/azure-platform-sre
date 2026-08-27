@@ -177,16 +177,111 @@ for migration in "${REPO_ROOT}"/applications/jobs-api/migrations/*.sql; do
 done
 
 
+echo "Configuring PostgreSQL application credentials..."
+
+KV_URL="http://localhost:4577/kv-platform-sre-keyvault"
+KV_AUTH="Authorization: Bearer development"
+KV_SECRET_NAME="jobs-db-password"
+
+SECRET_FILE=$(mktemp)
+
+STATUS=$(curl -sS \
+  -o "${SECRET_FILE}" \
+  -w '%{http_code}' \
+  -H "${KV_AUTH}" \
+  "${KV_URL}/secrets/${KV_SECRET_NAME}?api-version=7.4")
+
+case "${STATUS}" in
+  200)
+    JOBSAPP_PASSWORD=$(jq -r '.value' "${SECRET_FILE}")
+    echo "Using existing jobs application password from Key Vault."
+    ;;
+  404)
+    JOBSAPP_PASSWORD=$(openssl rand -hex 24)
+
+    jq -n \
+      --arg value "${JOBSAPP_PASSWORD}" \
+      '{value:$value}' \
+      | curl -sSf \
+          -X PUT \
+          -H "${KV_AUTH}" \
+          -H "Content-Type: application/json" \
+          --data-binary @- \
+          "${KV_URL}/secrets/${KV_SECRET_NAME}?api-version=7.4" \
+          > /dev/null
+
+    echo "Created jobs application password in Key Vault."
+    ;;
+  *)
+    echo "Failed to read ${KV_SECRET_NAME} from Key Vault: HTTP ${STATUS}" >&2
+    rm -f "${SECRET_FILE}"
+    exit 1
+    ;;
+esac
+
+rm -f "${SECRET_FILE}"
+
+if [ -z "${JOBSAPP_PASSWORD}" ] || [ "${JOBSAPP_PASSWORD}" = "null" ]; then
+  echo "Key Vault returned an empty jobs application password." >&2
+  exit 1
+fi
+
+echo "Creating or updating PostgreSQL role jobsapp..."
+
+ROLE_EXISTS=$(docker exec \
+  -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  floci-az-pg-pg-platform-sre \
+  psql \
+    -h 127.0.0.1 \
+    -U platformadmin \
+    -d postgres \
+    -tAc "SELECT 1 FROM pg_roles WHERE rolname='jobsapp';")
+
+if [ "${ROLE_EXISTS}" = "1" ]; then
+  docker exec \
+    -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+    floci-az-pg-pg-platform-sre \
+    psql \
+      -h 127.0.0.1 \
+      -U platformadmin \
+      -d postgres \
+      -c "ALTER ROLE jobsapp WITH LOGIN PASSWORD '${JOBSAPP_PASSWORD}';"
+else
+  docker exec \
+    -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+    floci-az-pg-pg-platform-sre \
+    psql \
+      -h 127.0.0.1 \
+      -U platformadmin \
+      -d postgres \
+      -c "CREATE ROLE jobsapp WITH LOGIN PASSWORD '${JOBSAPP_PASSWORD}';"
+fi
+
+docker exec \
+  -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  floci-az-pg-pg-platform-sre \
+  psql \
+    -h 127.0.0.1 \
+    -U platformadmin \
+    -d jobsdb \
+    -c "
+      GRANT CONNECT ON DATABASE jobsdb TO jobsapp;
+      GRANT USAGE ON SCHEMA public TO jobsapp;
+      GRANT SELECT, INSERT, UPDATE ON TABLE jobs TO jobsapp;
+    "
+
 echo "Creating PostgreSQL Kubernetes credentials..."
 
 kubectl create secret generic postgres-credentials \
   -n jobs \
-  --from-literal=PGUSER=platformadmin \
-  --from-literal=PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  --from-literal=PGUSER=jobsapp \
+  --from-literal=PGPASSWORD="${JOBSAPP_PASSWORD}" \
   --from-literal=PGDATABASE=jobsdb \
   --dry-run=client \
   -o yaml \
   | kubectl apply -f -
+
+unset JOBSAPP_PASSWORD
 
 
 echo "Creating Service Bus runtime endpoint..."
