@@ -6,12 +6,21 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export KUBECONFIG="${REPO_ROOT}/.generated/aks-kubeconfig"
 
+: "${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required}"
+
 echo "Bootstrapping Kubernetes cluster..."
 
 kubectl create namespace argocd \
   --dry-run=client \
   -o yaml \
   | kubectl apply -f -
+
+kubectl create namespace jobs \
+  --dry-run=client \
+  -o yaml \
+  | kubectl apply -f -
+
+echo "Installing Argo CD..."
 
 kubectl apply -n argocd \
   --server-side \
@@ -33,59 +42,194 @@ kubectl rollout status \
   --timeout=180s
 
 
-echo "Allowing Argo CD to manage EndpointSlices..."
+echo "Ensuring Service Bus jobs queue exists..."
 
-kubectl get configmap argocd-cm -n argocd -o json \
-  | jq -r '.data["resource.exclusions"] // ""' \
-  > /tmp/argocd-exclusions.yaml
+SERVICEBUS_URL="http://localhost:4577/sb-platform-sre-servicebus/jobs"
 
-python3 - <<'INNERPY'
-from pathlib import Path
+if curl -fsS "${SERVICEBUS_URL}" >/dev/null 2>&1; then
+  echo "Service Bus queue jobs already exists."
+else
+  curl -fsS \
+    -X PUT \
+    "${SERVICEBUS_URL}" \
+    -H "Content-Type: application/atom+xml;type=entry;charset=utf-8" \
+    --data-binary @- >/dev/null <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<entry xmlns="http://www.w3.org/2005/Atom">
+  <content type="application/xml">
+    <QueueDescription xmlns="http://schemas.microsoft.com/netservices/2010/10/servicebus/connect" />
+  </content>
+</entry>
+XML
 
-src = Path("/tmp/argocd-exclusions.yaml").read_text().splitlines()
+  echo "Service Bus queue jobs created."
+fi
 
-out = []
-skip = False
 
-for line in src:
-    if line.startswith("### Network resources created by the Kubernetes control plane"):
-        skip = True
-        continue
+echo "Discovering Docker network..."
 
-    if skip and line.startswith("### Internal Kubernetes resources"):
-        skip = False
-        out.append(line)
-        continue
+FLOCI_NETWORK="$(
+  docker inspect floci-az \
+    --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
+    | head -n1
+)"
 
-    if not skip:
-        out.append(line)
+DOCKER_GW="$(
+  docker network inspect "${FLOCI_NETWORK}" \
+    --format '{{(index .IPAM.Config 0).Gateway}}'
+)"
 
-Path("/tmp/argocd-exclusions-new.yaml").write_text(
-    "\n".join(out).strip() + "\n"
-)
-INNERPY
+echo "Docker network: ${FLOCI_NETWORK}"
+echo "Docker gateway: ${DOCKER_GW}"
 
-jq -n \
-  --rawfile exclusions /tmp/argocd-exclusions-new.yaml \
-  '{"data":{"resource.exclusions":$exclusions}}' \
-  > /tmp/argocd-cm-patch.json
 
-kubectl patch configmap argocd-cm \
-  -n argocd \
-  --type merge \
-  --patch-file /tmp/argocd-cm-patch.json
+echo "Waiting for Service Bus broker..."
 
-kubectl rollout restart \
-  statefulset/argocd-application-controller \
-  -n argocd
+SB_HOST_PORT=""
 
-kubectl rollout status \
-  statefulset/argocd-application-controller \
-  -n argocd \
-  --timeout=180s
+for i in $(seq 1 30); do
+  SB_HOST_PORT="$(
+    docker port floci-az-servicebus-default 5672/tcp 2>/dev/null \
+      | awk -F: '/0.0.0.0/ {print $2; exit}'
+  )"
 
-echo "Bootstrapping root application..."
+  if [ -n "${SB_HOST_PORT}" ]; then
+    break
+  fi
+
+  sleep 2
+done
+
+if [ -z "${SB_HOST_PORT}" ]; then
+  echo "Could not determine Service Bus host port." >&2
+  exit 1
+fi
+
+echo "Service Bus host port: ${SB_HOST_PORT}"
+
+
+echo "Waiting for PostgreSQL..."
+
+PG_CONTAINER="floci-az-pg-pg-platform-sre"
+PG_HOST_PORT=""
+
+for i in $(seq 1 30); do
+  PG_HOST_PORT="$(
+    docker port "${PG_CONTAINER}" 5432/tcp 2>/dev/null \
+      | awk -F: '/0.0.0.0/ {print $2; exit}'
+  )"
+
+  if [ -n "${PG_HOST_PORT}" ]; then
+    break
+  fi
+
+  sleep 2
+done
+
+if [ -z "${PG_HOST_PORT}" ]; then
+  echo "Could not determine PostgreSQL host port." >&2
+  exit 1
+fi
+
+echo "PostgreSQL host port: ${PG_HOST_PORT}"
+
+
+echo "Ensuring jobsdb exists..."
+
+if ! docker exec \
+  -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  "${PG_CONTAINER}" \
+  psql \
+    -h 127.0.0.1 \
+    -U platformadmin \
+    -d postgres \
+    -tAc "SELECT 1 FROM pg_database WHERE datname='jobsdb';" \
+    | grep -qx 1
+then
+  docker exec \
+    -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+    "${PG_CONTAINER}" \
+    createdb \
+      -h 127.0.0.1 \
+      -U platformadmin \
+      jobsdb
+
+  echo "Database jobsdb created."
+else
+  echo "Database jobsdb already exists."
+fi
+
+
+echo "Applying database migrations..."
+
+docker exec \
+  -i \
+  -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  "${PG_CONTAINER}" \
+  psql \
+    -h 127.0.0.1 \
+    -U platformadmin \
+    -d jobsdb \
+  < "${REPO_ROOT}/applications/jobs-api/migrations/001_create_jobs.sql"
+
+
+echo "Creating PostgreSQL Kubernetes credentials..."
+
+kubectl create secret generic postgres-credentials \
+  -n jobs \
+  --from-literal=PGUSER=platformadmin \
+  --from-literal=PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+  --from-literal=PGDATABASE=jobsdb \
+  --dry-run=client \
+  -o yaml \
+  | kubectl apply -f -
+
+
+echo "Creating Service Bus runtime endpoint..."
+
+cat <<SBEOF | kubectl apply -f -
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: servicebus
+  namespace: jobs
+  labels:
+    kubernetes.io/service-name: servicebus
+addressType: IPv4
+ports:
+  - name: amqp
+    protocol: TCP
+    port: ${SB_HOST_PORT}
+endpoints:
+  - addresses:
+      - "${DOCKER_GW}"
+SBEOF
+
+
+echo "Creating PostgreSQL runtime endpoint..."
+
+cat <<PGEOF | kubectl apply -f -
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: postgres
+  namespace: jobs
+  labels:
+    kubernetes.io/service-name: postgres
+addressType: IPv4
+ports:
+  - name: postgresql
+    protocol: TCP
+    port: ${PG_HOST_PORT}
+endpoints:
+  - addresses:
+      - "${DOCKER_GW}"
+PGEOF
+
+
+echo "Bootstrapping root Argo CD application..."
 
 kubectl apply -f "${REPO_ROOT}/gitops/root-app.yaml"
 
+echo
 echo "Cluster bootstrap complete."

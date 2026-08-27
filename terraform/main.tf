@@ -161,14 +161,22 @@ REGISTRY_EOF
 
 resource "terraform_data" "cluster_bootstrap" {
   triggers_replace = [
-    terraform_data.aks_platform.id
+    terraform_data.aks_platform.id,
+    terraform_data.postgres_platform.id,
+    filesha256("${path.module}/../scripts/bootstrap-cluster.sh"),
+    filesha256("${path.module}/../applications/jobs-api/migrations/001_create_jobs.sql")
   ]
 
   provisioner "local-exec" {
+    environment = {
+      POSTGRES_ADMIN_PASSWORD = var.postgres_admin_password
+    }
+
     command = "${path.module}/../scripts/bootstrap-cluster.sh"
   }
 
   depends_on = [
-    terraform_data.aks_platform
+    terraform_data.aks_platform,
+    terraform_data.postgres_platform
   ]
 }
