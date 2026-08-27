@@ -4,7 +4,7 @@ metadata:
   name: worker-metrics
 spec:
   selector:
-    app: worker-alert-test
+    app: worker
   ports:
     - name: metrics
       port: 9090
