@@ -33,20 +33,26 @@ spec:
               cpu: 20m
               memory: 64Mi
             limits:
-              cpu: 150m
+              cpu: 300m
               memory: 192Mi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 18
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/health
               port: http
-            initialDelaySeconds: 20
             periodSeconds: 20
+            failureThreshold: 3
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
