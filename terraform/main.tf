@@ -164,7 +164,10 @@ resource "terraform_data" "cluster_bootstrap" {
     terraform_data.aks_platform.id,
     terraform_data.postgres_platform.id,
     filesha256("${path.module}/../scripts/bootstrap-cluster.sh"),
-    filesha256("${path.module}/../applications/jobs-api/migrations/001_create_jobs.sql")
+    sha256(join("", [
+      for f in fileset("${path.module}/../applications/jobs-api/migrations", "*.sql") :
+      filesha256("${path.module}/../applications/jobs-api/migrations/${f}")
+    ]))
   ]
 
   provisioner "local-exec" {

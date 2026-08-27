@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS result_blob TEXT;
+
+COMMIT;

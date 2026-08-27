@@ -162,15 +162,19 @@ fi
 
 echo "Applying database migrations..."
 
-docker exec \
-  -i \
-  -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
-  "${PG_CONTAINER}" \
-  psql \
-    -h 127.0.0.1 \
-    -U platformadmin \
-    -d jobsdb \
-  < "${REPO_ROOT}/applications/jobs-api/migrations/001_create_jobs.sql"
+for migration in "${REPO_ROOT}"/applications/jobs-api/migrations/*.sql; do
+  echo "Applying $(basename "${migration}")..."
+
+  docker exec \
+    -i \
+    -e PGPASSWORD="${POSTGRES_ADMIN_PASSWORD}" \
+    "${PG_CONTAINER}" \
+    psql \
+      -h 127.0.0.1 \
+      -U platformadmin \
+      -d jobsdb \
+    < "${migration}"
+done
 
 
 echo "Creating PostgreSQL Kubernetes credentials..."
