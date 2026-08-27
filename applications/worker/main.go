@@ -89,6 +89,8 @@ func main() {
 		pgDatabase,
 	)
 
+	startWorkerMetricsServer()
+
 	ctx = context.Background()
 
 	for {
@@ -147,6 +149,9 @@ func consume(
 	}
 	defer receiver.Close(ctx)
 
+	workerReady.Set(1)
+	defer workerReady.Set(0)
+
 	log.Printf(
 		"worker ready; waiting for messages on queue %q",
 		queue,
@@ -170,6 +175,9 @@ func consume(
 			)
 		}
 
+		startedAt := time.Now()
+		workerJobsReceived.Inc()
+
 		log.Printf("received job %s", job.ID)
 
 		if err := updateJobStatus(
@@ -177,6 +185,9 @@ func consume(
 			job.ID,
 			"processing",
 		); err != nil {
+			workerJobsFailed.WithLabelValues("database_mark_processing").Inc()
+			workerJobDuration.Observe(time.Since(startedAt).Seconds())
+
 			return fmt.Errorf(
 				"mark job %s processing: %w",
 				job.ID,
@@ -213,6 +224,9 @@ func consume(
 				"failed",
 			)
 
+			workerJobsFailed.WithLabelValues("blob_upload").Inc()
+			workerJobDuration.Observe(time.Since(startedAt).Seconds())
+
 			return fmt.Errorf(
 				"upload result for job %s: %w",
 				job.ID,
@@ -227,6 +241,9 @@ func consume(
 			job.ID,
 			blobRef,
 		); err != nil {
+			workerJobsFailed.WithLabelValues("database_complete").Inc()
+			workerJobDuration.Observe(time.Since(startedAt).Seconds())
+
 			return fmt.Errorf(
 				"complete job %s: %w",
 				job.ID,
@@ -238,12 +255,18 @@ func consume(
 			ctx,
 			msg,
 		); err != nil {
+			workerJobsFailed.WithLabelValues("message_ack").Inc()
+			workerJobDuration.Observe(time.Since(startedAt).Seconds())
+
 			return fmt.Errorf(
 				"acknowledge job %s: %w",
 				job.ID,
 				err,
 			)
 		}
+
+		workerJobsCompleted.Inc()
+		workerJobDuration.Observe(time.Since(startedAt).Seconds())
 
 		log.Printf(
 			"job %s completed; result=%s",

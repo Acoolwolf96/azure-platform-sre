@@ -121,6 +121,7 @@ func main() {
 	log.Printf("connected to PostgreSQL database %s", pgDatabase)
 
 	mux := http.NewServeMux()
+	registerMetrics(mux)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -193,6 +194,7 @@ func main() {
 		)
 		if err != nil {
 			log.Printf("failed to persist job %s: %v", job.ID, err)
+			jobsAPIErrors.WithLabelValues("database_insert").Inc()
 
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to create job",
@@ -202,6 +204,7 @@ func main() {
 
 		if err := publishJob(ctx, brokerURL, queue, job); err != nil {
 			log.Printf("failed to publish job %s: %v", job.ID, err)
+			jobsAPIErrors.WithLabelValues("servicebus_publish").Inc()
 
 			_, updateErr := db.ExecContext(
 				context.Background(),
@@ -212,6 +215,7 @@ func main() {
 			)
 			if updateErr != nil {
 				log.Printf("failed to mark job %s as failed: %v", job.ID, updateErr)
+				jobsAPIErrors.WithLabelValues("database_mark_failed").Inc()
 			}
 
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -221,6 +225,7 @@ func main() {
 		}
 
 		log.Printf("queued job %s", job.ID)
+		jobsAPISubmitted.Inc()
 
 		writeJSON(w, http.StatusAccepted, map[string]string{
 			"id":     job.ID,
@@ -245,10 +250,11 @@ func main() {
 		}
 
 		var job jobRecord
+		var resultBlob sql.NullString
 
 		err := db.QueryRowContext(
 			r.Context(),
-			`SELECT id, payload, status, created_at, updated_at
+			`SELECT id, payload, status, created_at, updated_at, result_blob
 			 FROM jobs
 			 WHERE id = $1`,
 			id,
@@ -258,6 +264,7 @@ func main() {
 			&job.Status,
 			&job.CreatedAt,
 			&job.UpdatedAt,
+			&resultBlob,
 		)
 
 		if errors.Is(err, sql.ErrNoRows) {
@@ -269,6 +276,7 @@ func main() {
 
 		if err != nil {
 			log.Printf("failed to read job %s: %v", id, err)
+			jobsAPIErrors.WithLabelValues("database_read").Inc()
 
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to read job",
@@ -276,12 +284,17 @@ func main() {
 			return
 		}
 
+		if resultBlob.Valid {
+			value := resultBlob.String
+			job.ResultBlob = &value
+		}
+
 		writeJSON(w, http.StatusOK, job)
 	})
 
 	log.Printf("jobs-api listening on :%s", port)
 
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, withHTTPMetrics(mux)); err != nil {
 		log.Fatal(err)
 	}
 }

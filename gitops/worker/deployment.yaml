@@ -16,7 +16,13 @@ spec:
         - name: worker
           image: floci-az-acr-registry:5000/acrplatformsre/worker:97e5e9162e35c7d2640715d0b0334755c8b6150b
           imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
           env:
+            - name: METRICS_PORT
+              value: "9090"
             - name: SERVICEBUS_URL
               value: "amqp://servicebus.jobs.svc.cluster.local:5672"
             - name: SERVICEBUS_QUEUE
