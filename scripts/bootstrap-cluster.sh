@@ -284,6 +284,72 @@ kubectl create secret generic postgres-credentials \
 unset JOBSAPP_PASSWORD
 
 
+echo "Configuring Grafana admin credentials..."
+
+GRAFANA_SECRET_NAME="grafana-admin-password"
+GRAFANA_SECRET_FILE=$(mktemp)
+
+GRAFANA_STATUS=$(curl -sS \
+  -o "${GRAFANA_SECRET_FILE}" \
+  -w '%{http_code}' \
+  -H "${KV_AUTH}" \
+  "${KV_URL}/secrets/${GRAFANA_SECRET_NAME}?api-version=7.4")
+
+case "${GRAFANA_STATUS}" in
+  200)
+    GRAFANA_ADMIN_PASSWORD=$(jq -r '.value' "${GRAFANA_SECRET_FILE}")
+    echo "Using existing Grafana admin password from Key Vault."
+    ;;
+  404)
+    GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 24)
+
+    jq -n \
+      --arg value "${GRAFANA_ADMIN_PASSWORD}" \
+      '{value:$value}' \
+      | curl -sSf \
+          -X PUT \
+          -H "${KV_AUTH}" \
+          -H "Content-Type: application/json" \
+          --data-binary @- \
+          "${KV_URL}/secrets/${GRAFANA_SECRET_NAME}?api-version=7.4" \
+          > /dev/null
+
+    echo "Created Grafana admin password in Key Vault."
+    ;;
+  *)
+    echo "Failed to read ${GRAFANA_SECRET_NAME} from Key Vault: HTTP ${GRAFANA_STATUS}" >&2
+    rm -f "${GRAFANA_SECRET_FILE}"
+    exit 1
+    ;;
+esac
+
+rm -f "${GRAFANA_SECRET_FILE}"
+
+if [ -z "${GRAFANA_ADMIN_PASSWORD}" ] || [ "${GRAFANA_ADMIN_PASSWORD}" = "null" ]; then
+  echo "Key Vault returned an empty Grafana admin password." >&2
+  exit 1
+fi
+
+echo "Creating monitoring namespace..."
+
+kubectl create namespace monitoring \
+  --dry-run=client \
+  -o yaml \
+  | kubectl apply -f -
+
+echo "Creating Grafana Kubernetes credentials..."
+
+kubectl create secret generic grafana-admin \
+  -n monitoring \
+  --from-literal=GF_SECURITY_ADMIN_USER=admin \
+  --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}" \
+  --dry-run=client \
+  -o yaml \
+  | kubectl apply -f -
+
+unset GRAFANA_ADMIN_PASSWORD
+
+
 echo "Creating Service Bus runtime endpoint..."
 
 cat <<SBEOF | kubectl apply -f -
