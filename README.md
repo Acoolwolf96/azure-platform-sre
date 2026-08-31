@@ -1,18 +1,18 @@
 # Internal Developer Platform
 
-An internal developer platform that gives engineering teams a standardized way to request, deploy, operate, and observe application workloads — using Azure-oriented platform services, Kubernetes, Terraform, GitOps, CI/CD, secrets management, and SRE practices.
+An internal developer platform that gives engineering teams a standardized way to request, deploy, operate, and observe application workloads using Azure-oriented platform services, Kubernetes, Terraform, GitOps, CI/CD, secrets management, and SRE practices.
 
 > **Developers describe what they need. The platform handles how it is delivered.**
 
-The platform foundation — infrastructure, Kubernetes, GitOps delivery, secrets, and observability — is implemented and working end-to-end against a reference workload. The next milestone is the developer-facing self-service layer that turns a workload request into GitOps-managed platform resources.
+The platform foundation — infrastructure, Kubernetes, GitOps delivery, secrets, and observability is implemented and working end-to-end against a reference workload. The next milestone is the developer-facing self-service layer that turns a workload request into GitOps-managed platform resources.
 
 ---
 
 ## Overview
 
-Engineering teams need application infrastructure — Kubernetes resources, cloud services, a deployment pipeline, secrets, monitoring — without manually assembling each of those per service. This platform provides that as a standardized layer.
+Engineering teams need application infrastructure, Kubernetes resources, cloud services, a deployment pipeline, secrets, monitoring without manually assembling each of those per service. This platform provides that as a standardized layer.
 
-Azure-oriented services (Resource Group, networking, registry, Kubernetes, PostgreSQL, Key Vault, Service Bus, Blob Storage) are provisioned through Terraform against Floci AZ, a local Azure-compatible service emulator — so the platform behaves like a real Azure environment without requiring a live Azure subscription. Kubernetes workloads are delivered through Argo CD, application changes ship through GitHub Actions, and Prometheus/Grafana provide metrics, dashboards, and alerting.
+Azure-oriented services (Resource Group, networking, registry, Kubernetes, PostgreSQL, Key Vault, Service Bus, Blob Storage) are provisioned through Terraform against Floci AZ, a local Azure-compatible service emulator, so the platform behaves like a real Azure environment without requiring a live Azure subscription. Kubernetes workloads are delivered through Argo CD, application changes ship through GitHub Actions, and Prometheus/Grafana provide metrics, dashboards, and alerting.
 
 The long-term developer interaction is not Terraform, Kubernetes, or CLI usage — developers submit a workload request through the IDP, and the platform translates that into standardized infrastructure and deployment configuration.
 
@@ -119,7 +119,7 @@ Optional capabilities: PostgreSQL, Service Bus, Blob Storage, Key Vault, Monitor
 
 ## Reference Workload
 
-A working asynchronous Go application (`jobs-api` + `worker`) exists to exercise the platform, not as the IDP itself. The API accepts a job, persists it to PostgreSQL, and queues it via Service Bus; the worker processes it, writes the result to Blob Storage, and updates status (`queued → processing → completed`). It's a realistic workload for validating the infrastructure — in the finished IDP, developers won't interact with it directly.
+A working asynchronous Go application (`jobs-api` + `worker`) exists to exercise the platform, not as the IDP itself. The API accepts a job, persists it to PostgreSQL, and queues it via Service Bus; the worker processes it, writes the result to Blob Storage, and updates status (`queued → processing → completed`). It's a realistic workload for validating the infrastructure in the finished IDP, developers won't interact with it directly.
 
 ---
 
@@ -131,9 +131,9 @@ GitHub Actions (self-hosted runner, no automatic execution of untrusted PR code)
 
 ## Secrets, Observability & Alerting
 
-Secrets flow from Key Vault through the bootstrap script into Kubernetes Secrets, generating and storing values idempotently if they don't already exist — verified by deleting a secret and confirming the bootstrap recreates it from the same Key Vault value.
+Secrets flow from Key Vault through the bootstrap script into Kubernetes Secrets, generating and storing values idempotently if they don't already exist verified by deleting a secret and confirming the bootstrap recreates it from the same Key Vault value.
 
-The API and worker expose Prometheus metrics (requests, latency, jobs submitted/completed/failed, worker readiness); Grafana dashboards and Prometheus alert rules are provisioned entirely from Git. Alert rules cover target availability, worker readiness, job/API failures, and latency — the target-down rule has been tested end-to-end (break the metrics endpoint → alert fires → Argo CD restores it → alert resolves). Alertmanager routing to external notification channels is the remaining piece.
+The API and worker expose Prometheus metrics (requests, latency, jobs submitted/completed/failed, worker readiness); Grafana dashboards and Prometheus alert rules are provisioned entirely from Git. Alert rules cover target availability, worker readiness, job/API failures, and latency the target-down rule has been tested end-to-end (break the metrics endpoint → alert fires → Argo CD restores it → alert resolves). Alertmanager routing to external notification channels is the remaining piece.
 
 
 ## Security Considerations
