@@ -70,7 +70,7 @@ The long-term developer interaction is not Terraform, Kubernetes, or CLI usage: 
                        Prometheus → Grafana → Alerts
 ```
 
-The developer-facing portal at the top is the next milestone; everything below it is implemented and is what the portal will call into.
+The developer portal at the top is the next milestone; everything below it is implemented and is what the portal will call into.
 
 ---
 
